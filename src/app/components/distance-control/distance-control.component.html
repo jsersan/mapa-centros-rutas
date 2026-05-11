@@ -1,0 +1,54 @@
+<!-- distance-control.component.html -->
+<div class="distance-control" [class.visible]="geoReady">
+
+    <!-- Cabecera: título + badge -->
+    <div class="dc-header">
+      <span class="dc-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83
+                   M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+        </svg>
+        {{ 'distance.title' | translate }}
+      </span>
+      <span class="dc-badge">
+        {{ distanciaMaxima === 0 ? ('distance.all' | translate) : distanciaMaxima + ' km' }}
+      </span>
+    </div>
+  
+    <!-- Slider -->
+    <input
+      type="range"
+      class="dc-slider"
+      min="0" max="150" step="5"
+      [value]="distanciaMaxima"
+      (input)="onSliderInput($event)"
+      (change)="onSliderChange($event)"
+    />
+  
+    <!-- Estado geo -->
+    <div class="dc-geo-status" [class.error]="geoError">
+      <span class="dc-dot" [class.loading]="geoLoading" [class.error]="geoError"></span>
+      <span class="dc-geo-text">{{ geoStatusText }}</span>
+    </div>
+  
+    <!-- Escala -->
+    <div class="dc-scale">
+      <span>{{ 'distance.noLimit' | translate }}</span>
+      <span>150 km ({{ 'distance.max' | translate }})</span>
+    </div>
+  
+    <!-- Municipios con centros en rango -->
+    <div class="dc-municipios" [class.visible]="municipiosEnRango.length > 0 && distanciaMaxima > 0">
+      <span class="dc-muni-label">{{ 'distance.municipios' | translate }}:</span>
+      <span>
+        <ng-container *ngFor="let m of municipiosEnRango; let last = last">
+          <strong *ngIf="municipiosNuevos.has(m); else normal" [title]="'distance.nuevo' | translate">{{ m }}</strong>
+          <ng-template #normal>{{ m }}</ng-template>
+          <ng-container *ngIf="!last">, </ng-container>
+        </ng-container>
+      </span>
+    </div>
+  
+  </div>

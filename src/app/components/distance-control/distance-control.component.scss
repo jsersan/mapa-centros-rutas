@@ -1,0 +1,158 @@
+// distance-control.component.scss
+
+// ── Variables locales (coinciden con las del proyecto) ──────────────
+$primary:   #17a2b8;
+$success:   #28a745;
+$warning:   #ffc107;
+$danger:    #dc3545;
+$dk-blue:   #0d6efd;
+$text:      #555;
+$text-lt:   #888;
+$border:    #e0e0e0;
+$radius:    12px;
+$shadow:    0 2px 12px rgba(0, 0, 0, 0.18);
+
+// ── Contenedor ──────────────────────────────────────────────────────
+.distance-control {
+  position: absolute;
+  bottom: 24px;
+  right: 16px;
+  z-index: 1000;
+
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: $radius;
+  padding: 10px 16px 8px;
+  box-shadow: $shadow;
+  min-width: 220px;
+  max-width: 270px;
+
+  // Oculto hasta tener geo
+  display: none;
+  &.visible { display: block; }
+
+  // ── Cabecera ────────────────────────────────────────────────────
+  .dc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    gap: 8px;
+  }
+
+  .dc-title {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    color: $text;
+    white-space: nowrap;
+
+    svg { flex-shrink: 0; }
+  }
+
+  .dc-badge {
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    background: $primary;
+    border-radius: 20px;
+    padding: 1px 10px;
+    min-width: 52px;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  // ── Slider ──────────────────────────────────────────────────────
+  .dc-slider {
+    width: 100%;
+    accent-color: $primary;
+    cursor: pointer;
+    height: 4px;
+    margin: 2px 0 0;
+    display: block;
+  }
+
+  // ── Estado de geolocalización ───────────────────────────────────
+  .dc-geo-status {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: $text-lt;
+    margin-top: 4px;
+
+    &.error { color: $danger; }
+  }
+
+  .dc-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: $success;
+    display: inline-block;
+    flex-shrink: 0;
+
+    &.loading {
+      background: $warning;
+      animation: pulse 1s infinite;
+    }
+    &.error { background: $danger; }
+  }
+
+  // ── Escala del slider ───────────────────────────────────────────
+  .dc-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: #aaa;
+    margin-top: 2px;
+  }
+
+  // ── Lista de municipios ─────────────────────────────────────────
+  .dc-municipios {
+    display: none;
+    margin-top: 7px;
+    padding-top: 6px;
+    border-top: 1px solid $border;
+    font-size: 11px;
+    color: $text;
+    line-height: 1.5;
+    overflow: auto;
+    transition: max-height 0.25s ease;
+
+    &.visible { display: block; }
+
+    .dc-muni-label {
+      font-weight: 600;
+      color: $primary;
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    strong {
+      color: $dk-blue;
+      font-weight: 700;
+    }
+  }
+}
+
+// ── Animación del punto ──────────────────────────────────────────────
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+// ── Responsive ──────────────────────────────────────────────────────
+@media (max-width: 768px) {
+  .distance-control {
+    bottom: 12px;
+    right: 8px;
+    min-width: 190px;
+    max-width: 230px;
+    padding: 8px 12px 6px;
+
+    .dc-title { font-size: 11px; }
+    .dc-badge { font-size: 11px; min-width: 44px; padding: 1px 8px; }
+  }
+}

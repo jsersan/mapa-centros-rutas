@@ -1,0 +1,103 @@
+{
+  "header": {
+    "title": "Ikastetxe Bilatzailea OpenLayer Euskadi",
+    "inicio": "Hasiera"
+  },
+  "filters": {
+    "provincia":  "Hautatu probintzia",
+    "municipio":  "Hautatu udalerria",
+    "tipoCentro": "Hautatu ikastetxe mota",
+    "familia":    "Hautatu Lanbide Familia",
+    "grado":      "Hautatu maila",
+    "ciclo":      "Hautatu prestakuntza zikloa",
+    "limpiar":    "Iragazkiak garbitu"
+  },
+  "tabs": {
+    "contacto": "Harremanak",
+    "oferta":   "Hezkuntza Eskaintza",
+    "basico":   "Oinarrizko LH",
+    "medio":    "Erdi Mailako Zikloak",
+    "superior": "Goi Mailako Zikloak"
+  },
+  "grados": {
+    "basico":   "Oinarrizko Lanbide Heziketa",
+    "medio":    "Erdi Maila",
+    "superior": "Goi Maila"
+  },
+  "contacto": {
+    "direccion":    "Helbidea",
+    "codigoPostal": "Posta Kodea",
+    "municipio":    "Udalerria",
+    "provincia":    "Probintzia",
+    "telefono":     "Telefonoa",
+    "email":        "Emaila",
+    "web":          "Web",
+    "visitarWeb":   "Webgunea bisitatu"
+  },
+  "oferta": {
+    "titulo":          "Prestakuntza eskaintzaren laburpena",
+    "familias":        "Lanbide familiak",
+    "verBasica":       "Oinarrizko LH zikloak ikusi",
+    "verMedio":        "Erdi Mailako zikloak ikusi",
+    "verSuperior":     "Goi Mailako zikloak ikusi",
+    "noCiclosBasica":  "Ikastetxe honetan ez dago Oinarrizko LH ziklorik",
+    "noCiclosMedio":   "Ikastetxe honetan ez dago Erdi Mailako ziklorik",
+    "noCiclosSuperior":"Ikastetxe honetan ez dago Goi Mailako ziklorik"
+  },
+  "ciclo": {
+    "duracion": " ordu",
+    "verDCB":   "DCB ikusi"
+  },
+  "modal": {
+    "noResultados": "Ez da zentrorik aurkitu",
+    "entendido":    "Ulertu dut"
+  },
+  "distance": {
+    "title":          "Nire kokalekutik erradioa",
+    "all":            "Denak",
+    "noLimit":        "Mugarik gabe",
+    "max":            "máx.",
+    "municipios":     "Zentrodun udalerriak",
+    "nuevo":          "Berria",
+    "geoObteniendo":  "Kokapena lortzen...",
+    "geoObtenida":    "Kokapena lortuta ✓",
+    "geoError":       "Ezin izan da kokapena lortu",
+    "geoNoDisponible":"Geolokalizazioa ez dago erabilgarri",
+    "sinCentros":     "Zentrorik ez erradio honetan",
+    "sinCentrosMsg":  "Ez dago {{km}} km-ko distantzian zentrorik uneko iragazkiekin.",
+    "distancia":      "Distantzia"
+  },
+  "tiposCentro": {
+    "CIFP":   "Lanbide Heziketako Ikastetxe Integratua",
+    "CPEIPS": "Haur, Lehen eta Bigarren Hezkuntzako Ikastetxe Pribatua",
+    "CPES":   "Bigarren Hezkuntzako Ikastetxe Pribatua",
+    "CPFPB":  "Oinarrizko Lanbide Heziketako Ikastetxe Pribatua",
+    "IES":    "Bigarren Hezkuntzako Institutua",
+    "IMFPB":  "Oinarrizko Lanbide Heziketako Udal Institutua"
+  },
+  "familiasProfesionales": {
+    "AFD": "Jarduera Fisiko eta Kirolak",
+    "ADG": "Administrazioa eta Kudeaketa",
+    "AGA": "Nekazaritza",
+    "ARG": "Arte Grafikoak",
+    "COM": "Merkataritza eta Marketina",
+    "EOC": "Eraikuntza eta Obra Zibila",
+    "ELE": "Elektrizitatea eta Elektronika",
+    "ENA": "Energia eta Ura",
+    "FME": "Fabrikazio Mekanikoa",
+    "HOT": "Ostalaritza eta Turismoa",
+    "IMP": "Irudi Pertsonala",
+    "IMS": "Irudia eta Soinua",
+    "INA": "Elikagaien Industriak",
+    "IFC": "Informatika eta Komunikazioak",
+    "IMA": "Instalazioa eta Mantentze Lanak",
+    "MMC": "Zurgintzaa, Altzargintza eta Kortxoa",
+    "MAP": "Itsasoa eta Arrantza",
+    "QUI": "Kimika",
+    "SAN": "Osasungintzaa",
+    "SEA": "Segurtasuna eta Ingurumena",
+    "SSC": "Gizarte eta Kultura Zerbitzuak",
+    "TCP": "Ehungintza, Jantzigintza eta Larrugintza",
+    "TMV": "Garraioa eta Ibilgailuen Mantentze Lanak"
+  }
+}
