@@ -67,13 +67,15 @@
     "sinCentrosMsg":  "Ez dago {{km}} km-ko distantzian zentrorik uneko iragazkiekin.",
     "distancia":      "Distantzia"
   },
-  "tiposCentro": {
-    "CIFP":   "Lanbide Heziketako Ikastetxe Integratua",
-    "CPEIPS": "Haur, Lehen eta Bigarren Hezkuntzako Ikastetxe Pribatua",
-    "CPES":   "Bigarren Hezkuntzako Ikastetxe Pribatua",
-    "CPFPB":  "Oinarrizko Lanbide Heziketako Ikastetxe Pribatua",
-    "IES":    "Bigarren Hezkuntzako Institutua",
-    "IMFPB":  "Oinarrizko Lanbide Heziketako Udal Institutua"
+    "tiposCentro": {
+      "BHI": "Bigarren Hezkuntza Institutua",
+      "BHIP": "Bigarren Hezkuntza Instituto Pribatua",
+      "HLBHIP": "Haur, Lehen eta Bigarren Hezkuntzako Ikasteke Pribatua",
+      "LBHIP": "Lehen eta Bigarren Hezkuntzako Ikasteke Pribatua",
+      "LHII": "Lanbide Heziketa Ikasteke Integratua",
+      "LHIPI": "Lanbide Heziketa Ikasteke Publiko Integratua",
+      "OLHIP": "Oinarrizko Lanbide Heziketa Ikasteke Pribatua",
+      "OLHUI": "Oinarrizko Lanbide Heziketako Udal Institutua"
   },
   "familiasProfesionales": {
     "AFD": "Jarduera Fisiko eta Kirolak",

@@ -55,7 +55,7 @@
         (change)="actualizarMapa('ciclo')">
         <option value="">{{ 'filters.ciclo' | translate }}</option>
         <option *ngFor="let ciclo of ciclosFiltrados" [value]="ciclo.codcicl">
-          {{ currentLang === 'eu' ? ciclo.nomEuskera : ciclo.nom }}
+          {{ nombreCicloVisible(ciclo) }}
         </option>
       </select>
 

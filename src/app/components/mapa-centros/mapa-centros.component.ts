@@ -133,15 +133,52 @@ distanciaCargando = false
 
   tipoCentroLabels: Record<string, string> = {}
 
-  tipoCentroIcono: Record<string, string> = {
-    CIFP: 'assets/images/marker-cifp.png',
-    CPEPS: 'assets/images/marker-cpeips.png',
-    CPES: 'assets/images/marker-cpes.png',
-    CPFPB: 'assets/images/marker-cpfpb.png',
-    CPEIPS: 'assets/images/marker-cpeips.png',
-    IES: 'assets/images/marker-ies.png',
-    IMFPB: 'assets/images/marker-imfpb.png',
-    CPIFP: 'assets/images/marker-cpifp.png'
+  // ✅ Función para obtener el icono correcto según el tipo de centro y el idioma actual
+  private obtenerIconoCentro(centro: any): string {
+    const idioma = this.currentLang
+    const iconosBase = 'assets/images/'
+    
+    // Usar el campo correcto según el idioma
+    const campoTipoCentro = idioma === 'eu' ? 'DGENRE' : 'DGENRC'
+    const tipoCentro = centro[campoTipoCentro] as string
+    
+    // ✅ Mapeo de códigos españoles a iconos en ambos idiomas
+    // Cuando el idioma es euskera, usamos los iconos con los códigos euskera
+    const iconos: Record<string, { es: string; eu: string }> = {
+      'CIFP':   { es: iconosBase + 'marker-cifp.png',   eu: iconosBase + 'marker-lhii.png'  },
+      'CPFPB':  { es: iconosBase + 'marker-cpfpb.png',  eu: iconosBase + 'marker-olhip.png' },
+      'CPES':   { es: iconosBase + 'marker-cpes.png',   eu: iconosBase + 'marker-bhip.png'  },
+      'CPEPS':  { es: iconosBase + 'marker-cpeips.png', eu: iconosBase + 'marker-lbhip.png' },
+      'CPEIPS': { es: iconosBase + 'marker-cpeips.png', eu: iconosBase + 'marker-lbhip.png' },
+      'IES':    { es: iconosBase + 'marker-ies.png',    eu: iconosBase + 'marker-bhi.png'   },
+      'IMFPB':  { es: iconosBase + 'marker-imfpb.png',  eu: iconosBase + 'marker-olhui.png' },
+      'CPIFP':  { es: iconosBase + 'marker-cpifp.png',  eu: iconosBase + 'marker-lhipi.png' }
+    }
+    
+    // En euskera, necesitamos mapear los códigos euskera a los mismos iconos
+    const iconosEuskera: Record<string, string> = {
+      'LHII':   iconosBase + 'marker-lhii.png',   // Centro Integrado de FP
+      'OLHIP':  iconosBase + 'marker-olhip.png',  // FP Básica Privado
+      'BHIP':   iconosBase + 'marker-bhip.png',   // Secundaria Privado
+      'LBHIP':  iconosBase + 'marker-lbhip.png',  // Infantil+Primaria+Secundaria
+      'HLBHIP': iconosBase + 'marker-lbhip.png',  // Haur+Lehen+Bigarren (igual que LBHIP)
+      'BHI':    iconosBase + 'marker-bhi.png',    // IES
+      'OLHUI':  iconosBase + 'marker-olhui.png',  // Municipal FP Básica
+      'LHIPI':  iconosBase + 'marker-lhipi.png'   // Centro Público Integrado FP
+    }
+    
+    // Si estamos en euskera y el código es euskera, usar mapeo directo
+    if (idioma === 'eu' && iconosEuskera[tipoCentro]) {
+      return iconosEuskera[tipoCentro]
+    }
+    
+    // Si estamos en español, o si el código está en el mapeo bilingüe
+    if (iconos[tipoCentro]) {
+      return iconos[tipoCentro][idioma] || iconos[tipoCentro]['es']
+    }
+    
+    // Fallback a icono por defecto
+    return iconosBase + 'marker-default.png'
   }
 
   constructor (
@@ -178,12 +215,18 @@ distanciaCargando = false
     this.translate
       .get(['familiasProfesionales', 'tiposCentro', 'tabs', 'grados'])
       .subscribe({
-        next: () => {
+        next: (translations) => {
           console.log('✅ Todas las traducciones iniciales cargadas')
+          
+          // ✅ PRIMERO: Cargar las etiquetas de tipos de centro en tipoCentroLabels
+          this.tipoCentroLabels = translations['tiposCentro'] || {}
+          console.log('📋 tipoCentroLabels cargado:', this.tipoCentroLabels)
+          
+          // SEGUNDO: Cargar las otras etiquetas
           this.cargarEtiquetasTraducidas()
-          this.cargarEtiquetasTiposCentro()
           this.cargarEtiquetasFamilias()
 
+          // TERCERO: Cargar listas DESPUÉS de que tipoCentroLabels esté disponible
           setTimeout(() => {
             this.cargarTodasLasFamiliasTraducidas()
             this.cargarListas()
@@ -462,6 +505,66 @@ private async aplicarFiltroDistancia(): Promise<void> {
   }
 
   // ✅ NUEVO: Obtener centros filtrados según criterios actuales (sin distancia)
+  // ───────────────────────────────────────────────────────────────────────
+  // TIPO DE CENTRO COMO CÓDIGO NEUTRO (canónico en español)
+  // El dato trae el código en dos campos según idioma (DGENRC=es / DGENRE=eu).
+  // Guardamos y filtramos SIEMPRE por el código español canónico; el idioma
+  // solo decide la ETIQUETA que se muestra. Así el filtro nunca se rompe al
+  // cambiar de idioma y la selección no se pierde.
+  // ───────────────────────────────────────────────────────────────────────
+  private readonly tipoEsAEu: Record<string, string> = {
+    CIFP: 'LHII', CPIFP: 'LHIPI', IES: 'BHI', CPES: 'BHIP',
+    CPEIPS: 'LBHIP', CPEPS: 'LBHIP', CPFPB: 'OLHIP', IMFPB: 'OLHUI', CIFPD: 'LHII'
+  }
+  private readonly tipoEuAEs: Record<string, string> = {
+    LHII: 'CIFP', LHIPI: 'CPIFP', BHI: 'IES', BHIP: 'CPES',
+    LBHIP: 'CPEIPS', HLBHIP: 'CPEIPS', OLHIP: 'CPFPB', OLHUI: 'IMFPB'
+  }
+
+  // Código español canónico del tipo de un centro (corrige OLHUI→IMFPB y CIFPD→CIFP).
+  // Si faltara el campo español, cae al euskera mapeado para no perder el centro.
+  private tipoCanonico (centro: any): string {
+    let cod = (centro?.DGENRC as string) || ''
+    if (!cod) cod = this.tipoEuAEs[(centro?.DGENRE as string) || ''] || ''
+    if (cod === 'OLHUI') cod = 'IMFPB'
+    if (cod === 'CIFPD') cod = 'CIFP'
+    return cod
+  }
+
+  // ¿El centro cumple el filtro de tipo seleccionado? (independiente del idioma)
+  private centroCumpleTipo (centro: any): boolean {
+    if (!this.tipoCentroSeleccionado) return true
+    return this.tipoCanonico(centro) === this.tipoCentroSeleccionado
+  }
+
+  // Etiqueta traducida para un código español canónico
+  private etiquetaTipo (codigoEs: string): string {
+    if (this.currentLang === 'eu') {
+      const codEu = this.tipoEsAEu[codigoEs] || codigoEs
+      return this.tipoCentroLabels[codEu] || this.tipoCentroLabels[codigoEs] || codigoEs
+    }
+    return this.tipoCentroLabels[codigoEs] || codigoEs
+  }
+
+  // Construye el combo de tipos (value = código español neutro, label = traducción)
+  private construirTiposCentro (): void {
+    const conCiclos = new Set<number>()
+    ciclosAsignacion.forEach(c => c.centros.forEach(ccen => conCiclos.add(ccen)))
+
+    const codigos = new Set<string>()
+    institutos.forEach(centro => {
+      if (conCiclos.has(centro.CCEN)) {
+        const cod = this.tipoCanonico(centro)
+        if (cod && cod.trim() !== '') codigos.add(cod)
+      }
+    })
+
+    this.tiposCentro = Array.from(codigos).sort().map(codigo => ({
+      value: codigo,
+      label: this.etiquetaTipo(codigo)
+    }))
+  }
+
   private obtenerCentrosFiltrados (): any[] {
     const campoProvincia = this.currentLang === 'eu' ? 'DTERRE' : 'DTERRC'
     const campoMunicipio = this.currentLang === 'eu' ? 'DMUNIE' : 'DMUNIC'
@@ -518,13 +621,7 @@ private async aplicarFiltroDistancia(): Promise<void> {
         return false
       }
 
-      if (this.tipoCentroSeleccionado) {
-        if (this.tipoCentroSeleccionado === 'CIFP') {
-          if (centro.DGENRC !== 'CIFP' && centro.DGENRC !== 'CIFPD') return false
-        } else {
-          if (centro.DGENRC !== this.tipoCentroSeleccionado) return false
-        }
-      }
+      if (!this.centroCumpleTipo(centro)) return false
 
       if (hayFiltrosCiclos && centrosValidos.size > 0) {
         if (!centrosValidos.has(centro.CCEN)) return false
@@ -550,8 +647,8 @@ private async aplicarFiltroDistancia(): Promise<void> {
         const point = new Point(coords)
         const feature = new Feature<Point>({ geometry: point })
 
-        const tipoGenerico = centro.DGENRC
-        const iconoUrl = this.tipoCentroIcono[tipoGenerico] || 'assets/images/marker-default.png'
+        // ✅ Obtener el icono correcto según el tipo de centro y el idioma actual
+        const iconoUrl = this.obtenerIconoCentro(centro)
 
         feature.setStyle(
           new Style({
@@ -661,7 +758,8 @@ private async aplicarFiltroDistancia(): Promise<void> {
 
     const familiaSeleccionadaAnterior = this.familiaSeleccionada
     this.familiasFiltradas = []
-    this.familiaSeleccionada = ''
+    // ✅ NO borramos la familia: la re-traducimos al nuevo idioma más abajo
+    //    para conservar la selección (antes: this.familiaSeleccionada = '')
 
     this.translate.use(lang).subscribe({
       next: () => {
@@ -670,11 +768,14 @@ private async aplicarFiltroDistancia(): Promise<void> {
         this.translate
           .get(['familiasProfesionales', 'tiposCentro', 'tabs', 'grados'])
           .subscribe({
-            next: () => {
-              console.log('📚 Traducciones base cargadas')
+            next: (translations) => {
+              console.log('📚 Traducciones base cargadas para idioma:', lang)
+
+              // ✅ PRIMERO: Cargar las etiquetas de tipos de centro
+              this.tipoCentroLabels = translations['tiposCentro'] || {}
+              console.log('📋 tipoCentroLabels actualizado para', lang, ':', this.tipoCentroLabels)
 
               this.cargarEtiquetasTraducidas()
-              this.cargarEtiquetasTiposCentro()
               this.cargarEtiquetasFamilias()
 
               setTimeout(() => {
@@ -684,20 +785,21 @@ private async aplicarFiltroDistancia(): Promise<void> {
 
                     this.cargarFamiliasTraducidasForzado()
 
-                    const tiposConFP = new Set<string>()
-                    institutos.forEach(centro => {
-                      if (centro.DGENRC && centro.DGENRC.trim() !== '') {
-                        tiposConFP.add(centro.DGENRC)
-                      }
-                    })
+                    // ✅ Tipos de centro: solo refrescamos ETIQUETAS; el value
+                    // sigue siendo el código español neutro, así que la selección
+                    // de tipo NO se pierde al cambiar de idioma.
+                    this.construirTiposCentro()
 
-                    const tiposUnicos = Array.from(tiposConFP).sort()
-                    this.tiposCentro = tiposUnicos.map(codigo => ({
-                      value: codigo,
-                      label: this.tipoCentroLabels[codigo] || codigo
-                    }))
-                    
-                    console.log('🔄 Tipos de centro actualizados después de cambio de idioma:', this.tiposCentro.length)
+                    // ✅ Re-traducir la familia seleccionada al nuevo idioma para
+                    // que el combo conserve su valor (en vez de borrarlo).
+                    if (familiaSeleccionadaAnterior) {
+                      const dictNuevo = (translations['familiasProfesionales'] || {}) as Record<string, string>
+                      this.translate.getTranslation(lang === 'eu' ? 'es' : 'eu').subscribe(tradAnt => {
+                        const dictAnt = (tradAnt.familiasProfesionales || {}) as Record<string, string>
+                        const clave = Object.keys(dictAnt).find(k => dictAnt[k] === familiaSeleccionadaAnterior)
+                        this.familiaSeleccionada = (clave && dictNuevo[clave]) ? dictNuevo[clave] : familiaSeleccionadaAnterior
+                      })
+                    }
 
                     const campoProvincia = lang === 'eu' ? 'DTERRE' : 'DTERRC'
                     this.provincias = Array.from(
@@ -1111,23 +1213,23 @@ cerrarPopup(): void {
       next: (tipos: Record<string, string>) => {
         this.tipoCentroLabels = tipos || {}
         
-        console.log('✅ Etiquetas de tipos de centro cargadas:', this.tipoCentroLabels)
+        console.log('✅ cargarEtiquetasTiposCentro: Etiquetas cargadas:', this.tipoCentroLabels)
 
-        // Actualizar las etiquetas en tiposCentro si ya existen
+        // Actualizar el array existente solo si ya tiene elementos
         if (this.tiposCentro && this.tiposCentro.length > 0) {
           this.tiposCentro = this.tiposCentro.map(t => ({
             ...t,
-            label: this.tipoCentroLabels[t.value] || t.label || t.value
+            label: this.tipoCentroLabels[t.value] || t.value
           }))
-          console.log('✅ Array tiposCentro actualizado con etiquetas traducidas')
+          console.log('✅ cargarEtiquetasTiposCentro: Array tiposCentro actualizado')
         }
       },
       error: err => {
-        console.error('Error cargando tiposCentro desde traducciones', err)
+        console.error('❌ Error en cargarEtiquetasTiposCentro:', err)
         if (this.tiposCentro && this.tiposCentro.length > 0) {
           this.tiposCentro = this.tiposCentro.map(t => ({
             ...t,
-            label: t.label || t.value
+            label: t.value  // Fallback a usar el código si falla la carga
           }))
         }
       }
@@ -1151,6 +1253,15 @@ cerrarPopup(): void {
 
   getTotalCiclos (tipo: 'basicos' | 'medios' | 'superiores'): number {
     return this.ciclosCentro[tipo]?.length || 0
+  }
+
+  // Texto del ciclo en el combo: en euskera usa nomEuskera y, si faltara,
+  // cae al castellano para que la opción nunca quede en blanco.
+  nombreCicloVisible (ciclo: Asignacion): string {
+    if (this.currentLang === 'eu') {
+      return (ciclo.nomEuskera || '').trim() || ciclo.nom || ''
+    }
+    return ciclo.nom || ''
   }
 
   getDCBUrl (ciclo: Asignacion): string {
@@ -1210,33 +1321,10 @@ cerrarPopup(): void {
       new Set(institutos.map(c => c[campoProvincia] as string))
     ).sort()
 
-    const centrosConCiclos = new Set<number>()
-    ciclosAsignacion.forEach(ciclo => {
-      ciclo.centros.forEach(ccen => centrosConCiclos.add(ccen))
-    })
+    // ✅ Tipos de centro con código español neutro (no depende del idioma)
+    this.construirTiposCentro()
 
-    const tiposConFP = new Set<string>()
-    institutos.forEach(centro => {
-      if (
-        centrosConCiclos.has(centro.CCEN) &&
-        centro.DGENRC &&
-        centro.DGENRC.trim() !== ''
-      ) {
-        tiposConFP.add(centro.DGENRC)
-      }
-    })
-
-    const tiposUnicos = Array.from(tiposConFP).sort()
-
-    this.tiposCentro = tiposUnicos.map(codigo => ({
-      value: codigo,
-      label: this.tipoCentroLabels[codigo] || codigo
-    }))
-    
-    console.log('📋 Tipos de centro cargados:', this.tiposCentro.length, 'tipos')
-    
-    // ✅ Recargar etiquetas para asegurar que se muestren los nombres completos
-    this.cargarEtiquetasTiposCentro()
+    console.log('📋 Tipos de centro creados:', this.tiposCentro)
 
     this.ciclosFiltrados = []
 
@@ -1411,14 +1499,7 @@ cerrarPopup(): void {
         .filter(c => {
           if (c[campoProvincia] !== this.provinciaSeleccionada) return false
           if (!centrosConCiclos.has(c.CCEN)) return false
-
-          if (this.tipoCentroSeleccionado) {
-            if (this.tipoCentroSeleccionado === 'CIFP') {
-              if (c.DGENRC !== 'CIFP' && c.DGENRC !== 'CIFPD') return false
-            } else {
-              if (c.DGENRC !== this.tipoCentroSeleccionado) return false
-            }
-          }
+          if (!this.centroCumpleTipo(c)) return false
           return true
         })
         .forEach(c => municipiosSet.add(c[campoMunicipio] as string))
@@ -1496,16 +1577,8 @@ cerrarPopup(): void {
         return
       }
 
-      if (this.tipoCentroSeleccionado) {
-        if (this.tipoCentroSeleccionado === 'CIFP') {
-          if (centro.DGENRC !== 'CIFP' && centro.DGENRC !== 'CIFPD') {
-            return
-          }
-        } else {
-          if (centro.DGENRC !== this.tipoCentroSeleccionado) {
-            return
-          }
-        }
+      if (this.tipoCentroSeleccionado && !this.centroCumpleTipo(centro)) {
+        return
       }
 
       centrosValidos.add(centro.CCEN)

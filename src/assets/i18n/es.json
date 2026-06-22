@@ -67,14 +67,16 @@
     "sinCentrosMsg":  "No hay centros en un radio de {{km}} km con los filtros actuales.",
     "distancia":      "Distancia"
   },
-  "tiposCentro": {
-    "CIFP":   "Centro Integrado de Formación Profesional",
-    "CPEIPS": "Centro Privado de Educación Infantil, Primaria y Secundaria",
-    "CPES":   "Centro Privado de Educación Secundaria",
-    "CPFPB":  "Centro Privado de Formación Profesional Básica",
-    "IES":    "Instituto de Educación Secundaria",
-    "IMFPB":  "Instituto Municipal de Formación Profesional Básica"
-  },
+    "tiposCentro": {
+      "CIFP": "Centro Integrado de Formación Profesional",
+      "CPEIPS": "Centro Privado de Educación Infantil, Primaria y Secundaria",
+      "CPEPS": "Centro Privado de Educación Primaria y Secundaria",
+      "CPES": "Centro Privado de Educación Secundaria",
+      "CPFPB": "Centro Privado de Formación Profesional Básica",
+      "CPIFP": "Centro Público Integrado de Formación Profesional",
+      "IES": "Instituto de Educación Secundaria",
+      "IMFPB": "Instituto Municipal de Formación Profesional Básica"
+    },
   "familiasProfesionales": {
     "AFD": "Actividades Físicas y Deportivas",
     "ADG": "Administración y Gestión",
