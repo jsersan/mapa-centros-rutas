@@ -66,6 +66,23 @@
         {{ 'filters.limpiar' | translate }}
       </button>
     </div>
+
+    <!-- Favoritos guardados -->
+    <div class="favoritos-panel" *ngIf="listaFavoritos.length">
+      <div class="favoritos-titulo">
+        ⭐ {{ currentLang === 'eu' ? 'Gogokoak' : 'Favoritos' }} ({{ listaFavoritos.length }})
+      </div>
+      <ul class="favoritos-lista">
+        <li *ngFor="let f of listaFavoritos">
+          <button class="fav-nombre" (click)="abrirFavorito(f)"
+            [title]="currentLang === 'eu' ? 'Mapan erakutsi' : 'Ver en el mapa'">
+            {{ f.NOME || f.NOM }}
+          </button>
+          <button class="fav-quitar" (click)="toggleFavorito(f)"
+            [title]="currentLang === 'eu' ? 'Kendu' : 'Quitar'">×</button>
+        </li>
+      </ul>
+    </div>
   </div>
 
   <div class="main-map">
@@ -73,10 +90,18 @@
 
     <!-- Popup con pestañas -->
     <div id="popup" class="ol-popup" *ngIf="popupVisible" [style.left.px]="popupPosition.x"
-      [style.top.px]="popupPosition.y" [class]="popupClass">
+      [style.top.px]="popupPosition.y" [class]="popupClass" [class.popup-movido]="popupMovido">
       <button class="popup-closer" (click)="cerrarPopup()">×</button>
+      <button class="popup-fav" [class.activo]="esFavorito(centroSeleccionado)"
+        (click)="toggleFavorito(centroSeleccionado)"
+        [title]="esFavorito(centroSeleccionado)
+          ? (currentLang === 'eu' ? 'Gogokoetatik kendu' : 'Quitar de favoritos')
+          : (currentLang === 'eu' ? 'Gogokoetan gorde' : 'Guardar en favoritos')">
+        {{ esFavorito(centroSeleccionado) ? '★' : '☆' }}
+      </button>
 
-      <div class="popup-header">
+      <div class="popup-header popup-arrastrable" (pointerdown)="iniciarArrastrePopup($event)"
+        title="Arrastra para mover la ventana">
         <img [src]="getImagenCentro(centroSeleccionado.CCEN)" [alt]="centroSeleccionado.NOM" class="centro-imagen"
           (error)="onImageError($event)">
         <div>
@@ -99,6 +124,66 @@
 
         <!-- PESTAÑA: INFORMACIÓN DE CONTACTO -->
         <div *ngIf="tabActiva === 'contacto'" class="tab-panel">
+
+          <!-- RUTA POR CARRETERA (automática: posición del navegador → este centro) -->
+          <div class="ruta-box">
+            <div class="ruta-cargando" *ngIf="rutaCargando">
+              ⏳ {{ currentLang === 'eu' ? 'Ibilbidea kalkulatzen…' : 'Calculando ruta…' }}
+            </div>
+
+            <div class="ruta-resultado" *ngIf="rutaVisible">
+              <div class="ruta-dato">
+                <strong>🚗 {{ currentLang === 'eu' ? 'Ibilbidea' : 'Ruta por carretera' }}:</strong>
+                <span class="ruta-km">{{ rutaDistanciaTexto }}</span>
+                <span *ngIf="rutaDuracionTexto"> · ⏱ {{ rutaDuracionTexto }}</span>
+              </div>
+              <div class="ruta-origen" *ngIf="rutaOrigenTexto">
+                {{ currentLang === 'eu' ? 'Jatorria' : 'Origen' }}: {{ rutaOrigenTexto }}
+              </div>
+              <div class="ruta-nota" *ngIf="!rutaEsFallback">
+                {{ currentLang === 'eu' ? '(ibilbide azkarrena · OSRM)' : '(ruta más rápida · OSRM)' }}
+              </div>
+
+              <!-- Desglose por vías -->
+              <div class="ruta-tramos" *ngIf="rutaTramos.length">
+                <div class="ruta-tramos-titulo">
+                  {{ currentLang === 'eu' ? 'Bideak' : 'Por vías' }} ({{ rutaTramos.length }}):
+                </div>
+                <ol class="ruta-tramos-lista">
+                  <li *ngFor="let t of rutaTramos">
+                    <span class="tramo-via">{{ t.via || (currentLang === 'eu' ? 'Izenik gabeko bidea' : 'Vía sin nombre') }}</span>
+                    <span class="tramo-puntos"></span>
+                    <span class="tramo-km">
+                      <span class="tramo-pk">{{ formatearKm(t.km) }}</span>
+                      <small class="tramo-long">· {{ puntoKm(t.kmInicio) }}</small>
+                    </span>
+                  </li>
+                </ol>
+                <div class="ruta-tramos-aclaracion">
+                  {{ currentLang === 'eu'
+                      ? 'km-a ibilbidean metatua da, ez errepidearen puntu kilometriko ofiziala.'
+                      : 'El km es el acumulado de la ruta, no el punto kilométrico oficial de la vía.' }}
+                </div>
+              </div>
+
+              <button class="btn-imprimir-ruta" (click)="imprimirRuta()" *ngIf="rutaTramos.length">
+                🖨️ {{ currentLang === 'eu' ? 'Ibilbidea inprimatu (PDF)' : 'Imprimir ruta (PDF)' }}
+              </button>
+
+              <div class="ruta-aviso" *ngIf="rutaEsFallback">
+                {{ currentLang === 'eu'
+                    ? '(gutxi gorabeherako lerro zuzena — ibilbide-zerbitzua ez dago erabilgarri)'
+                    : '(línea recta aproximada — servicio de rutas no disponible)' }}
+              </div>
+            </div>
+
+            <div class="ruta-error" *ngIf="rutaError">
+              ⚠️ {{ rutaError }}
+              <button class="btn-ruta-quitar" (click)="mostrarRutaAlCentro(centroSeleccionado)">
+                {{ currentLang === 'eu' ? 'Berriro saiatu' : 'Reintentar' }}
+              </button>
+            </div>
+          </div>
 
           <div class="info-row" *ngIf="centroSeleccionado.DOMI">
             <strong>{{ 'contacto.direccion' | translate }}:</strong>
@@ -135,18 +220,6 @@
             <a [href]="centroSeleccionado.PAGINA" target="_blank" rel="noopener">
               {{ 'contacto.visitarWeb' | translate }}
             </a>
-          </div>
-
-          <!-- DISTANCIA POR CARRETERA -->
-          <!-- distanciaTexto es una propiedad (no método), se actualiza via NgZone -->
-           <div class="info-row info-row--distance" *ngIf="posicionUsuario">
-      <!--      <strong>{{ 'distance.distancia' | translate }}:</strong>
-          <span class="distance-value" *ngIf="distanciaTexto; else calculandoTpl">
-              {{ distanciaTexto }}
-            </span>
-             <ng-template #calculandoTpl>
-              <span class="distance-loading">⏳ Calculando ruta...</span>
-            </ng-template> -->
           </div>
 
         </div>

@@ -1,8 +1,10 @@
 // mapa-centros.component.ts
-import { Component, OnInit, AfterViewInit, ViewChild, ChangeDetectorRef, NgZone } from '@angular/core'
+import { Component, OnInit, AfterViewInit, ViewChild, ChangeDetectorRef, NgZone, HostListener } from '@angular/core'
 import { MatSnackBar } from '@angular/material/snack-bar'
 
-import { RoutingService, RoutingResult } from '../../services/routing.service'
+import { RoutingService, RoutingResult, RutaCarretera, TramoRuta, PasoRuta } from '../../services/routing.service'
+import { GeoIpService, OrigenIp } from '../../services/geoip.service'
+import { FavoritosService } from '../../services/favoritos.service'
 
 import Map from 'ol/Map'
 import View from 'ol/View'
@@ -12,9 +14,14 @@ import VectorLayer from 'ol/layer/Vector'
 import VectorSource from 'ol/source/Vector'
 import Feature from 'ol/Feature'
 import Point from 'ol/geom/Point'
+import LineString from 'ol/geom/LineString'
 import Style from 'ol/style/Style'
 import Icon from 'ol/style/Icon'
-import { transformExtent, transform } from 'ol/proj'
+import Stroke from 'ol/style/Stroke'
+import Fill from 'ol/style/Fill'
+import CircleStyle from 'ol/style/Circle'
+import { transformExtent, transform, fromLonLat } from 'ol/proj'
+import { getDistance } from 'ol/sphere'
 import { register } from 'ol/proj/proj4'
 import * as proj4x from 'proj4'
 
@@ -67,6 +74,21 @@ distanciaCargando = false
   traduccionesListas = false
   map!: Map
   pinsLayer!: VectorLayer<any>
+
+  // ── Estado de la RUTA por carretera (origen IP → centro) ──────────
+  rutaLayer!: VectorLayer<any>
+  origenIp: OrigenIp | null = null
+  rutaVisible = false
+  rutaCargando = false
+  rutaDistanciaTexto = ''
+  rutaDuracionTexto = ''
+  rutaOrigenTexto = ''
+  rutaTramos: TramoRuta[] = []
+  rutaInstrucciones: PasoRuta[] = []
+  // Vértices de la ruta con su km acumulado (para el km exacto bajo el cursor)
+  private rutaVertices: { x: number; y: number; km: number }[] = []
+  rutaError = ''
+  rutaEsFallback = false
   provincias: string[] = []
   municipios: string[] = []
   tiposCentro: { value: string; label: string }[] = []
@@ -99,6 +121,17 @@ distanciaCargando = false
 
   popupPosition = { x: 0, y: 0 }
   popupClass = 'popup-bottom'
+
+  // ── Favoritos ─────────────────────────────────────────────────────
+  listaFavoritos: any[] = []
+
+  // ── Arrastre del popup con el ratón ───────────────────────────────
+  popupMovido = false                 // true cuando el usuario lo ha arrastrado
+  private arrastrandoPopup = false
+  private arrastreMouseIniX = 0
+  private arrastreMouseIniY = 0
+  private arrastrePopupIniX = 0
+  private arrastrePopupIniY = 0
 
   tabs: Tab[] = [
     { id: 'contacto', label: 'Información de Contacto' },
@@ -185,6 +218,8 @@ distanciaCargando = false
     private snackBar: MatSnackBar,
     private translate: TranslateService,
     private routing: RoutingService,
+    private geoip: GeoIpService,
+    private favoritos: FavoritosService,
     private cdr: ChangeDetectorRef,
     private ngZone: NgZone
   ) {
@@ -195,6 +230,8 @@ distanciaCargando = false
   }
 
   ngOnInit (): void {
+    this.refrescarFavoritos()
+
     proj4.defs(
       'EPSG:25830',
       '+proj=utm +zone=30 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs'
@@ -332,6 +369,648 @@ distanciaCargando = false
         this.routingResultsCache[ccen] = r
         this.actualizarDistanciaEnVista(r)
       })
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  ARRASTRE DEL POPUP (para poder ver la ruta que queda detrás)
+  // ═══════════════════════════════════════════════════════════════════
+
+  // Se dispara al pulsar sobre la cabecera del popup.
+  iniciarArrastrePopup(event: PointerEvent): void {
+    if (event.button !== 0) return               // solo botón izquierdo
+    this.arrastrandoPopup = true
+    this.arrastreMouseIniX = event.clientX
+    this.arrastreMouseIniY = event.clientY
+    this.arrastrePopupIniX = this.popupPosition.x
+    this.arrastrePopupIniY = this.popupPosition.y
+    event.preventDefault()                       // evita seleccionar texto
+  }
+
+  @HostListener('document:pointermove', ['$event'])
+  onArrastrarPopup(event: PointerEvent): void {
+    if (!this.arrastrandoPopup) return
+    const dx = event.clientX - this.arrastreMouseIniX
+    const dy = event.clientY - this.arrastreMouseIniY
+    this.popupPosition.x = this.arrastrePopupIniX + dx
+    this.popupPosition.y = this.arrastrePopupIniY + dy
+    this.popupMovido = true                       // oculta la flecha del popup
+  }
+
+  @HostListener('document:pointerup')
+  finArrastrePopup(): void {
+    this.arrastrandoPopup = false
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  RUTA POR CARRETERA: origen (posición del navegador) → centro
+  // ═══════════════════════════════════════════════════════════════════
+
+  // Resuelve el origen de la ruta:
+  //   1º GPS del navegador (posicionUsuario): es la posición fiable que ya
+  //      usa el filtro de radio y no depende de servicios externos.
+  //   2º respaldo: geolocalización por IP (aproximada), si no hay GPS.
+  private async resolverOrigen(): Promise<{ lat: number; lng: number; etiqueta: string } | null> {
+    if (
+      this.posicionUsuario &&
+      isFinite(this.posicionUsuario.lat) &&
+      isFinite(this.posicionUsuario.lng)
+    ) {
+      console.log('🧭 Origen de la ruta = GPS del navegador', this.posicionUsuario)
+      return {
+        lat: this.posicionUsuario.lat,
+        lng: this.posicionUsuario.lng,
+        etiqueta: this.currentLang === 'eu' ? 'Zure kokapena' : 'Tu ubicación'
+      }
+    }
+
+    // Respaldo: geolocalización por IP (aproximada)
+    try {
+      const ip = await this.geoip.localizar()
+      if (ip) {
+        this.origenIp = ip
+        const partes = [ip.ciudad, ip.region, ip.pais].filter(Boolean)
+        const etiqueta = partes.length
+          ? partes.join(', ')
+          : `${ip.lat.toFixed(3)}, ${ip.lng.toFixed(3)}`
+        console.log('🌐 Origen de la ruta = IP (aprox.)', ip)
+        return { lat: ip.lat, lng: ip.lng, etiqueta }
+      }
+    } catch (e) {
+      console.warn('Geo-IP no disponible:', e)
+    }
+
+    console.warn('⚠️ No hay origen disponible (ni GPS ni IP)')
+    return null
+  }
+
+  // Coordenadas lat/lng (EPSG:4326) de un centro a partir de COOR_X/COOR_Y (EPSG:25830)
+  private coordsCentro(centro: any): { lat: number; lng: number } | null {
+    if (!centro || centro.COOR_X == null || centro.COOR_Y == null) return null
+    const x = Number(centro.COOR_X)
+    const y = Number(centro.COOR_Y)
+    if (isNaN(x) || isNaN(y)) return null
+    try {
+      const [lng, lat] = transform([x, y], 'EPSG:25830', 'EPSG:4326')
+      if (!isFinite(lat) || !isFinite(lng)) return null
+      return { lat, lng }
+    } catch {
+      return null
+    }
+  }
+
+  // Llamado al abrir el popup de un centro: calcula y dibuja la ruta.
+  // ajustarVista=false → no mueve el mapa (mantiene el popup alineado con el pin).
+  async mostrarRutaAlCentro(centro: any, ajustarVista = false): Promise<void> {
+    console.log('🛣️ mostrarRutaAlCentro →', centro?.CCEN, centro?.DENOM || '')
+    // Estado inicial "calculando" (dentro de la zona Angular)
+    this.ngZone.run(() => {
+      this.rutaError = ''
+      this.rutaVisible = false
+      this.rutaDistanciaTexto = ''
+      this.rutaDuracionTexto = ''
+      this.rutaOrigenTexto = ''
+      this.rutaTramos = []
+      this.rutaInstrucciones = []
+      this.rutaEsFallback = false
+      this.rutaCargando = true
+      this.cdr.detectChanges()
+    })
+
+    const dest = this.coordsCentro(centro)
+    if (!dest) {
+      console.warn('🛣️ Sin coordenadas de destino para', centro?.CCEN)
+      this.setRutaError(this.currentLang === 'eu'
+        ? 'Ezin izan dira ikastetxearen koordenatuak lortu'
+        : 'No se han podido obtener las coordenadas del centro')
+      return
+    }
+    console.log('🛣️ Destino:', dest)
+
+    const origen = await this.resolverOrigen()
+    if (!origen) {
+      this.setRutaError(this.currentLang === 'eu'
+        ? 'Ezin izan da jatorriaren kokapena zehaztu'
+        : 'No se ha podido determinar la ubicación de origen')
+      return
+    }
+
+    let ruta: RutaCarretera
+    try {
+      ruta = await this.routing.rutaConGeometria(origen.lat, origen.lng, dest.lat, dest.lng)
+    } catch (e) {
+      console.error('🛣️ Error calculando ruta:', e)
+      this.setRutaError(this.currentLang === 'eu'
+        ? 'Ezin izan da ibilbidea kalkulatu'
+        : 'No se ha podido calcular la ruta')
+      return
+    }
+    console.log('🛣️ Ruta recibida:', ruta.distanciaKm.toFixed(1), 'km,',
+      ruta.coordinates.length, 'puntos', ruta.esFallback ? '(fallback recto)' : '')
+
+    // Dibujar la ruta en el mapa (solo toca OpenLayers)
+    this.dibujarRuta(origen, ruta, ajustarVista)
+
+    // Aplicar estado visible dentro de la zona Angular
+    this.ngZone.run(() => {
+      this.rutaEsFallback = !!ruta.esFallback
+      this.rutaDistanciaTexto = this.routing.formatearDistancia(ruta.distanciaKm, ruta.esFallback)
+      this.rutaDuracionTexto = this.routing.formatearDuracion(ruta.duracionMin)
+      this.rutaOrigenTexto = origen.etiqueta
+      this.rutaTramos = ruta.tramos || []
+      this.rutaInstrucciones = ruta.instrucciones || []
+      this.rutaVisible = true
+      this.rutaCargando = false
+      this.cdr.detectChanges()
+    })
+  }
+
+  // Muestra un error de ruta dentro de la zona Angular
+  private setRutaError(msg: string): void {
+    this.ngZone.run(() => {
+      this.rutaCargando = false
+      this.rutaVisible = false
+      this.rutaError = msg
+      this.cdr.detectChanges()
+    })
+  }
+
+  // Dibuja la línea de la ruta + el marcador de origen.
+  // Solo ajusta la vista si ajustarVista=true.
+  private dibujarRuta(
+    origen: { lat: number; lng: number; etiqueta: string },
+    ruta: RutaCarretera,
+    ajustarVista: boolean
+  ): void {
+    const source = this.rutaLayer.getSource() as VectorSource
+    source.clear()
+
+    // Precalcular vértices con km acumulado (distancia geodésica real)
+    // para poder mostrar el km exacto del punto bajo el cursor.
+    this.rutaVertices = []
+    let acumMetros = 0
+    const coordsRuta = ruta.coordinates
+    for (let i = 0; i < coordsRuta.length; i++) {
+      if (i > 0) acumMetros += getDistance(coordsRuta[i - 1], coordsRuta[i])
+      const [x, y] = fromLonLat(coordsRuta[i])
+      this.rutaVertices.push({ x, y, km: acumMetros / 1000 })
+    }
+
+    const tramos = ruta.tramos || []
+    // Solo dibujamos por tramos si TODOS tienen geometría (para no dejar huecos)
+    const porTramos = !ruta.esFallback && tramos.length > 0 &&
+      tramos.every(t => (t.coordenadas?.length || 0) > 1)
+
+    if (porTramos) {
+      // Un elemento por vía: el tooltip podrá leer su nombre y su km
+      for (const t of tramos) {
+        const pts = t.coordenadas!.map(([lng, lat]) => fromLonLat([lng, lat]))
+        const f = new Feature({ geometry: new LineString(pts) })
+        f.setStyle([
+          new Style({ stroke: new Stroke({ color: 'rgba(255,255,255,0.9)', width: 9 }) }),
+          new Style({ stroke: new Stroke({ color: '#1e40af', width: 5 }) })
+        ])
+        f.setProperties({ esRutaTramo: true, via: t.via, kmInicio: t.kmInicio, kmTramo: t.km })
+        source.addFeature(f)
+      }
+    } else {
+      // Línea única (fallback recto o sin geometría por tramos)
+      const puntos = ruta.coordinates.map(([lng, lat]) => fromLonLat([lng, lat]))
+      const lineFeature = new Feature({ geometry: new LineString(puntos) })
+      lineFeature.setStyle([
+        new Style({ stroke: new Stroke({ color: 'rgba(255,255,255,0.9)', width: 9 }) }),
+        new Style({
+          stroke: new Stroke({
+            color: ruta.esFallback ? '#e67e22' : '#1e40af',
+            width: 5,
+            lineDash: ruta.esFallback ? [10, 8] : undefined
+          })
+        })
+      ])
+      lineFeature.setProperties({ esRutaTramo: true, via: '', kmInicio: 0, kmTramo: ruta.distanciaKm })
+      source.addFeature(lineFeature)
+    }
+
+    // Marcador del origen (punto de la IP / GPS)
+    const origenFeature = new Feature({ geometry: new Point(fromLonLat([origen.lng, origen.lat])) })
+    origenFeature.setStyle(new Style({
+      image: new CircleStyle({
+        radius: 8,
+        fill: new Fill({ color: '#16a34a' }),
+        stroke: new Stroke({ color: '#ffffff', width: 2 })
+      })
+    }))
+    origenFeature.setProperties({ esRutaOrigen: true })
+    source.addFeature(origenFeature)
+    console.log('🛣️ Ruta dibujada en el mapa:', source.getFeatures().length, 'features',
+      porTramos ? '(por tramos)' : '(línea única)')
+
+    // Ajustar la vista solo si se pide explícitamente
+    if (ajustarVista) {
+      const extent = source.getExtent()
+      if (extent && isFinite(extent[0])) {
+        this.map.getView().fit(extent, {
+          padding: [80, 80, 80, 80],
+          duration: 500,
+          maxZoom: 13
+        })
+      }
+    }
+  }
+
+  // Borra la ruta del mapa y limpia el estado.
+  quitarRuta(): void {
+    const source = this.rutaLayer?.getSource() as VectorSource | undefined
+    source?.clear()
+    this.rutaVertices = []
+    this.rutaVisible = false
+    this.rutaCargando = false
+    this.rutaDistanciaTexto = ''
+    this.rutaDuracionTexto = ''
+    this.rutaOrigenTexto = ''
+    this.rutaTramos = []
+    this.rutaInstrucciones = []
+    this.rutaError = ''
+    this.rutaEsFallback = false
+  }
+
+  // Formatea los km de un tramo para la plantilla
+  formatearKm(km: number): string {
+    return this.routing.formatearDistancia(km)
+  }
+
+  // Punto kilométrico ACUMULADO de la ruta (no PK oficial de la vía)
+  puntoKm(km: number): string {
+    return `km ${km.toFixed(1)}`
+  }
+
+  // Texto del tooltip al pasar por la línea de la ruta o el origen.
+  // kmPunto = km acumulado exacto del punto bajo el cursor (si se conoce).
+  private etiquetaTramo(props: any, kmPunto: number | null): string {
+    if (props['esRutaOrigen']) {
+      return this.currentLang === 'eu' ? 'Jatorria: zure kokapena' : 'Origen: tu ubicación'
+    }
+    const via = props['via'] || (this.currentLang === 'eu' ? 'Izenik gabeko bidea' : 'Vía sin nombre')
+    const km = kmPunto != null
+      ? kmPunto
+      : (typeof props['kmInicio'] === 'number' ? props['kmInicio'] : null)
+    return km != null ? `${via} · ${this.puntoKm(km)}` : via
+  }
+
+  // Devuelve el km acumulado de la ruta en el punto más cercano al cursor.
+  // Busca el vértice más próximo (aproximación de pocos metros).
+  private kmEnPunto(coord: number[]): number | null {
+    if (!this.rutaVertices.length || !coord) return null
+    let mejor = Infinity
+    let km = 0
+    for (const v of this.rutaVertices) {
+      const dx = v.x - coord[0]
+      const dy = v.y - coord[1]
+      const d = dx * dx + dy * dy
+      if (d < mejor) { mejor = d; km = v.km }
+    }
+    return km
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  FAVORITOS (persisten en localStorage)
+  // ═══════════════════════════════════════════════════════════════════
+
+  esFavorito(centro: any): boolean {
+    return !!centro && this.favoritos.es(centro.CCEN)
+  }
+
+  toggleFavorito(centro: any): void {
+    if (!centro || centro.CCEN == null) return
+    this.favoritos.alternar(centro.CCEN)
+    this.refrescarFavoritos()
+  }
+
+  // Reconstruye la lista de favoritos (objetos completos) desde los códigos guardados
+  refrescarFavoritos(): void {
+    const ids = new Set(this.favoritos.listaIds())
+    this.listaFavoritos = (institutos as any[])
+      .filter(c => ids.has(String(c.CCEN)))
+      .sort((a, b) => String(a.NOME || a.NOM || '').localeCompare(String(b.NOME || b.NOM || '')))
+  }
+
+  // Abre un favorito: centra el mapa en el centro y muestra su popup + ruta
+  abrirFavorito(centro: any): void {
+    const coords = this.coordsCentro(centro)
+    if (!coords || !this.map) return
+    const c3857 = fromLonLat([coords.lng, coords.lat])
+    const view = this.map.getView()
+    const zoomObjetivo = Math.max(view.getZoom() || 10, 12)
+    view.animate({ center: c3857, zoom: zoomObjetivo, duration: 400 }, () => {
+      const pixel = this.map.getPixelFromCoordinate(c3857)
+      if (pixel) this.onSelectCentro(centro, pixel as [number, number])
+    })
+  }
+
+  // Escapa texto para insertarlo con seguridad en el HTML de impresión
+  private escaparHtml(s: string): string {
+    return (s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+  }
+
+  // Formatea una distancia en metros para las indicaciones
+  private metros(m: number): string {
+    if (m < 1000) return `${Math.round(m / 10) * 10} m`
+    return `${(m / 1000).toFixed(1)} km`
+  }
+
+  // Palabra de sentido (derecha/izquierda…) según el modificador de OSRM
+  private direccion(mod: string, eu: boolean): string {
+    const es: any = {
+      'right': 'a la derecha', 'left': 'a la izquierda',
+      'slight right': 'ligeramente a la derecha', 'slight left': 'ligeramente a la izquierda',
+      'sharp right': 'bruscamente a la derecha', 'sharp left': 'bruscamente a la izquierda',
+      'straight': 'recto', 'uturn': 'en sentido contrario'
+    }
+    const eus: any = {
+      'right': 'eskuinera', 'left': 'ezkerrera',
+      'slight right': 'eskuinera apur bat', 'slight left': 'ezkerrera apur bat',
+      'sharp right': 'eskuinera zorrotz', 'sharp left': 'ezkerrera zorrotz',
+      'straight': 'zuzen', 'uturn': 'atzera'
+    }
+    return (eu ? eus : es)[mod] || ''
+  }
+
+  // Verbo de la maniobra (sin la vía) según el tipo de OSRM
+  private verboManiobra(tipo: string, dir: string, salida: number | undefined, eu: boolean): string {
+    if (eu) {
+      switch (tipo) {
+        case 'turn': return `${dir} biratu`
+        case 'end of road': return `bidearen amaieran ${dir} biratu`
+        case 'new name': return 'jarraitu'
+        case 'continue': return dir && dir !== 'zuzen' ? `${dir} jarraitu` : 'jarraitu'
+        case 'merge': return 'sartu'
+        case 'on ramp': return 'sarrera hartu'
+        case 'off ramp': return 'irteera hartu'
+        case 'fork': return `bidegurutzean, ${dir}`
+        case 'roundabout': case 'rotary': case 'roundabout turn':
+          return salida ? `biribilgunean, ${salida}. irteera hartu` : 'biribilgunean sartu'
+        case 'exit roundabout': case 'exit rotary': return 'biribilgunetik irten'
+        default: return 'jarraitu'
+      }
+    }
+    switch (tipo) {
+      case 'turn': return `gira ${dir}`
+      case 'end of road': return `al final de la vía, gira ${dir}`
+      case 'new name': return 'continúa'
+      case 'continue': return dir && dir !== 'recto' ? `continúa ${dir}` : 'continúa'
+      case 'merge': return 'incorpórate'
+      case 'on ramp': return 'toma la incorporación'
+      case 'off ramp': return 'toma la salida'
+      case 'fork': return `en la bifurcación, mantente ${dir}`
+      case 'roundabout': case 'rotary': case 'roundabout turn':
+        return salida ? `en la rotonda, toma la ${salida}ª salida` : 'entra en la rotonda'
+      case 'exit roundabout': case 'exit rotary': return 'sal de la rotonda'
+      default: return 'continúa'
+    }
+  }
+
+  // Redacta una instrucción completa a partir de un paso de OSRM.
+  // OJO: los datos de la maniobra son de OSRM; la redacción es propia.
+  private redactarPaso(p: PasoRuta, i: number, eu: boolean): string {
+    const via = this.escaparHtml(p.via)
+    const dir = this.direccion(p.modificador, eu)
+    const dist = this.metros(p.distHastaManiobraM)
+
+    if (i === 0 || p.tipo === 'depart') {
+      return eu
+        ? `${via ? via + '-tik ' : ''}abiatu.`
+        : `Comienza${via ? ' por ' + via : ''}.`
+    }
+    if (p.tipo === 'arrive') {
+      return eu
+        ? `${dist}-ra, helmugara iritsi zara${via ? ' (' + via + ')' : ''}.`
+        : `A ${dist}, llegas a tu destino${via ? ' (' + via + ')' : ''}.`
+    }
+    const verbo = this.verboManiobra(p.tipo, dir, p.salida, eu)
+    return eu
+      ? `${dist}-ra, ${verbo}${via ? ' (' + via + ')' : ''}.`
+      : `A ${dist}, ${verbo}${via ? ' hacia ' + via : ''}.`
+  }
+
+  // Captura el mapa (con la ruta) como imagen PNG (dataURL).
+  // Ajusta la vista a la ruta, espera a que carguen las teselas, compone
+  // los lienzos y restaura la vista anterior. Requiere crossOrigin en OSM.
+  private capturarMapaRuta(): Promise<string> {
+    return new Promise((resolve, reject) => {
+      if (!this.map || !this.rutaLayer) { reject('sin mapa'); return }
+      const source = this.rutaLayer.getSource() as VectorSource
+      const extent = source.getExtent()
+      if (!extent || !isFinite(extent[0])) { reject('sin ruta'); return }
+
+      const view = this.map.getView()
+      const centroPrev = view.getCenter()
+      const resPrev = view.getResolution()
+
+      const restaurar = () => {
+        if (centroPrev) view.setCenter(centroPrev)
+        if (resPrev != null) view.setResolution(resPrev)
+      }
+
+      // Encuadrar toda la ruta con margen amplio para que no se recorten
+      // los iconos de los pines (que se dibujan por encima del punto).
+      view.fit(extent, { padding: [80, 55, 55, 55], maxZoom: 15 })
+
+      let hecho = false
+      const finalizar = (fn: () => void) => { if (!hecho) { hecho = true; fn() } }
+
+      // Margen de seguridad por si 'rendercomplete' no llega
+      const tope = setTimeout(() => {
+        finalizar(() => {
+          try {
+            const url = this.componerLienzoMapa()
+            restaurar()
+            resolve(url)
+          } catch (e) { restaurar(); reject(e) }
+        })
+      }, 2500)
+
+      // Esperar a que el marco esté totalmente renderizado (teselas cargadas)
+      this.map.once('rendercomplete', () => {
+        // pequeño respiro para asegurar el pintado
+        setTimeout(() => {
+          finalizar(() => {
+            clearTimeout(tope)
+            try {
+              const url = this.componerLienzoMapa()
+              restaurar()
+              resolve(url)
+            } catch (e) { restaurar(); reject(e) }
+          })
+        }, 150)
+      })
+
+      this.map.render()
+    })
+  }
+
+  // Compone los lienzos (canvas) del mapa en uno solo y devuelve el dataURL.
+  // Técnica recomendada por OpenLayers para exportar el mapa.
+  private componerLienzoMapa(): string {
+    const size = this.map.getSize()
+    if (!size) throw new Error('sin tamaño de mapa')
+    const mapCanvas = document.createElement('canvas')
+    mapCanvas.width = size[0]
+    mapCanvas.height = size[1]
+    const ctx = mapCanvas.getContext('2d')
+    if (!ctx) throw new Error('sin contexto 2d')
+
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, mapCanvas.width, mapCanvas.height)
+
+    const lienzos = this.map.getViewport().querySelectorAll('.ol-layer canvas, canvas.ol-layer')
+    lienzos.forEach((canvas: any) => {
+      if (!canvas.width) return
+      const opacity = (canvas.parentNode && canvas.parentNode.style.opacity) || canvas.style.opacity
+      ctx.globalAlpha = opacity === '' ? 1 : Number(opacity)
+      const transform = canvas.style.transform
+      let matriz: number[]
+      const m = transform && transform.match(/^matrix\(([^)]+)\)$/)
+      if (m) {
+        matriz = m[1].split(',').map(Number)
+      } else {
+        matriz = [
+          parseFloat(canvas.style.width || `${canvas.width}`) / canvas.width, 0, 0,
+          parseFloat(canvas.style.height || `${canvas.height}`) / canvas.height, 0, 0
+        ]
+      }
+      ;(ctx as any).setTransform(...matriz)
+      ctx.drawImage(canvas, 0, 0)
+    })
+    ctx.globalAlpha = 1
+    ;(ctx as any).setTransform(1, 0, 0, 1, 0, 0)
+
+    return mapCanvas.toDataURL('image/png')   // lanza si el lienzo está "tainted"
+  }
+
+  // Genera una hoja imprimible de la ruta y abre el diálogo de impresión
+  // (desde ahí se puede "Guardar como PDF"). No usa librerías externas.
+  async imprimirRuta(): Promise<void> {
+    if (!this.rutaVisible || !this.centroSeleccionado || !this.rutaTramos.length) return
+    const eu = this.currentLang === 'eu'
+    const c = this.centroSeleccionado
+
+    // Captura del mapa con la ruta (plan B: si falla, PDF sin imagen)
+    let imagenMapa = ''
+    try {
+      imagenMapa = await this.capturarMapaRuta()
+    } catch (e) {
+      console.warn('🖨️ No se pudo capturar el mapa para el PDF:', e)
+      imagenMapa = ''
+    }
+
+    const nombre = this.escaparHtml(
+      `${c.DGENRC || ''} ${c.NOME || c.NOM || ''} ${c.DGENRE || ''}`.trim()
+    )
+    const codigo = this.escaparHtml(String(c.CCEN || ''))
+    const municipio = this.escaparHtml(c.DMUNIE || c.DMUNIC || '')
+    const fecha = new Date().toLocaleString('es-ES')
+
+    const filas = this.rutaTramos.map((t, i) => {
+      const via = this.escaparHtml(t.via || (eu ? 'Izenik gabeko bidea' : 'Vía sin nombre'))
+      return `<tr>
+        <td class="n">${i + 1}</td>
+        <td class="via">${via}</td>
+        <td class="pk">${this.formatearKm(t.km)}</td>
+        <td class="len">${this.puntoKm(t.kmInicio)}</td>
+      </tr>`
+    }).join('')
+
+    // Indicaciones paso a paso (maniobras)
+    const indicaciones = this.rutaInstrucciones
+      .map((p, i) => this.redactarPaso(p, i, eu))
+      .map(txt => `<li>${txt}</li>`)
+      .join('')
+
+    const T = eu
+      ? { titulo: 'Errepideko ibilbidea', origen: 'Jatorria', tuUbi: 'Zure kokapena',
+          dist: 'Distantzia', dur: 'Iraupena', via: 'Bidea', pk: 'km (metatua)',
+          long: 'Luzera', num: '#', imprimir: 'Inprimatu', indic: 'Nabigazio-argibideak',
+          nota: 'km-a ibilbidean metatua da, ez errepidearen puntu kilometriko ofiziala. Bideen izenak OpenStreetMap-etik datoz. Ibilbide azkarrena (OSRM). Argibideen idazkera automatikoa da.' }
+      : { titulo: 'Ruta por carretera', origen: 'Origen', tuUbi: 'Tu ubicación',
+          dist: 'Distancia', dur: 'Duración', via: 'Vía', pk: 'km (acumulado)',
+          long: 'Longitud', num: '#', imprimir: 'Imprimir', indic: 'Indicaciones',
+          nota: 'El km es el acumulado de la ruta, no el punto kilométrico oficial de la vía. Los nombres de las vías proceden de OpenStreetMap. Ruta más rápida (OSRM). La redacción de las indicaciones es automática.' }
+
+    const html = `<!DOCTYPE html>
+<html lang="${eu ? 'eu' : 'es'}">
+<head>
+<meta charset="utf-8">
+<title>${T.titulo} — ${nombre}</title>
+<style>
+  * { box-sizing: border-box; }
+  @page { size: A4; margin: 1.1cm 1.1cm 1.3cm 1.1cm; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: #1e293b;
+    margin: 0; padding: 0.4cm; }
+  h1 { font-size: 20px; margin: 0 0 2px; color: #1e40af; }
+  h2 { font-size: 14px; font-weight: 600; margin: 0 0 16px; color: #334155; }
+  .mapa-ruta { width: 100%; height: auto; display: block; margin: 12px 0 20px;
+    border: 1px solid #e2e8f0; border-radius: 8px; }
+  .resumen { display: flex; gap: 24px; flex-wrap: wrap; margin: 12px 0 20px;
+    padding: 12px 16px; background: #f1f5f9; border-radius: 8px; }
+  .resumen div { font-size: 13px; }
+  .resumen b { display: block; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .5px; color: #64748b; }
+  .resumen span { font-size: 16px; font-weight: 700; color: #1e40af; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e2e8f0; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: #64748b; border-bottom: 2px solid #cbd5e1; }
+  td.n { color: #94a3b8; width: 28px; }
+  th:nth-child(3), th:nth-child(4) { text-align: right; }
+  td.pk { text-align: right; font-weight: 700; white-space: nowrap; }
+  td.len { text-align: right; white-space: nowrap; color: #475569; }
+  .nota { margin-top: 16px; font-size: 11px; color: #94a3b8; font-style: italic; }
+  .pie { margin-top: 8px; font-size: 11px; color: #94a3b8; }
+  h3 { font-size: 13px; margin: 24px 0 8px; color: #334155; text-transform: uppercase; letter-spacing: .5px; }
+  ol.indic { margin: 0; padding-left: 22px; font-size: 13px; }
+  ol.indic li { padding: 3px 0; border-bottom: 1px solid #f1f5f9; }
+  .toolbar { margin-bottom: 16px; }
+  .toolbar button { font-size: 14px; padding: 8px 16px; border: none;
+    background: #1e40af; color: #fff; border-radius: 6px; cursor: pointer; }
+  @media print { .toolbar { display: none; } ol.indic li { break-inside: avoid; } }
+</style>
+</head>
+<body>
+  <div class="toolbar"><button onclick="window.print()">🖨️ ${T.imprimir}</button></div>
+  <h1>${T.titulo}</h1>
+  <h2>${nombre}${codigo ? ` (${codigo})` : ''}${municipio ? ` — ${municipio}` : ''}</h2>
+  <div class="resumen">
+    <div><b>${T.origen}</b><span>${this.escaparHtml(this.rutaOrigenTexto || T.tuUbi)}</span></div>
+    <div><b>${T.dist}</b><span>${this.escaparHtml(this.rutaDistanciaTexto)}</span></div>
+    <div><b>${T.dur}</b><span>${this.escaparHtml(this.rutaDuracionTexto || '—')}</span></div>
+  </div>
+  ${imagenMapa ? `<img class="mapa-ruta" src="${imagenMapa}" alt="${T.titulo}">` : ''}
+  <table>
+    <thead><tr><th>${T.num}</th><th>${T.via}</th><th>${T.long}</th><th>${T.pk}</th></tr></thead>
+    <tbody>${filas}</tbody>
+  </table>
+  ${indicaciones ? `<h3>${T.indic}</h3><ol class="indic">${indicaciones}</ol>` : ''}
+  <div class="nota">${T.nota}</div>
+  <div class="pie">${fecha}</div>
+</body>
+</html>`
+
+    const win = window.open('', '_blank')
+    if (!win) {
+      alert(eu
+        ? 'Baimendu leiho gainerakorrak ibilbidea inprimatzeko.'
+        : 'Permite las ventanas emergentes para imprimir la ruta.')
+      return
+    }
+    win.document.open()
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    // Pequeña espera para que renderice antes de abrir el diálogo
+    setTimeout(() => { try { win.print() } catch (e) { /* el usuario puede imprimir con el botón */ } }, 400)
   }
 
   // ✅ MÉTODO: Evento cuando cambia la distancia en el control
@@ -664,6 +1343,8 @@ private async aplicarFiltroDistancia(): Promise<void> {
 
         feature.setProperties({
           CCEN: centro.CCEN,
+          COOR_X: centro.COOR_X,   // necesario para calcular la ruta al pulsar el pin
+          COOR_Y: centro.COOR_Y,
           name: centro.NOM || 'Sin nombre',
           tooltipNombre: tooltipNombre,
           DTERRC: centro.DTERRC,
@@ -1014,6 +1695,8 @@ onSelectCentro(centro: any, pixel: number[]): void {
   this.panAttempts = 0
   this.selectedCentro = centro
   this.centroSeleccionado = centro
+  this.popupMovido = false   // el popup nuevo aparece anclado al pin
+  this.quitarRuta()   // limpiar ruta anterior al seleccionar otro centro
   this.cargandoDistanciaPopup = false
   this.calculandoDistancia.clear()
   this.distanciaTexto    = ''
@@ -1023,13 +1706,15 @@ onSelectCentro(centro: any, pixel: number[]): void {
   this.tabActiva = 'contacto'
   this.mostrarPopupSeguro(pixel)
 
-  // Lanzar cálculo DESPUÉS de renderizar el popup
-  this.calcularDistanciaParaPopup(centro)
+  // Dibujar la ruta automáticamente (sin mover la vista, para no descolocar el popup)
+  this.mostrarRutaAlCentro(centro)
 }
 
 // ── Método corregido: cerrarPopup ────────────────────────────
 cerrarPopup(): void {
   this.popupVisible = false
+  this.popupMovido = false
+  this.arrastrandoPopup = false
   this.selectedCentro = null
   this.centroSeleccionado = null
   this.isPanning = false
@@ -1038,6 +1723,7 @@ cerrarPopup(): void {
   this.distanciaTexto    = ''
   this.distanciaCargando = false
   this.calculandoDistancia.clear()
+  this.quitarRuta()   // borrar la ruta del mapa al cerrar el popup
 }
 
   mostrarPopupSeguro (pixel: number[]): void {
@@ -1343,7 +2029,7 @@ cerrarPopup(): void {
   inicializarMapa (): void {
     this.map = new Map({
       target: 'map',
-      layers: [new TileLayer({ source: new OSM() })],
+      layers: [new TileLayer({ source: new OSM({ crossOrigin: 'anonymous' }) })],
       view: new View({ center: [0, 0], zoom: 2 })
     })
 
@@ -1375,6 +2061,26 @@ cerrarPopup(): void {
 
       if (feature) {
         const props = feature.getProperties()
+
+        // Tooltip de la RUTA: nombre de la vía + km acumulado del punto
+        if (props['esRutaTramo'] || props['esRutaOrigen']) {
+          const coord = this.map.getCoordinateFromPixel(pixel)
+          const kmPunto = props['esRutaOrigen'] ? null : this.kmEnPunto(coord)
+          this.tooltipVisible = true
+          this.tooltipContent = this.etiquetaTramo(props, kmPunto)
+          const mev = evt.originalEvent as MouseEvent
+          const tw = 320, th = 40, m = 20
+          let tx = mev.clientX + 12
+          let ty = mev.clientY - 14
+          if (tx + tw > window.innerWidth - m) tx = mev.clientX - tw - 12
+          if (ty + th > window.innerHeight - m) ty = mev.clientY - th - 14
+          if (tx < m) tx = m
+          if (ty < m) ty = m
+          this.tooltipX = tx
+          this.tooltipY = ty
+          ;(this.map.getTargetElement() as HTMLElement).style.cursor = 'pointer'
+          return
+        }
 
         if (
           this.popupVisible &&
@@ -1416,6 +2122,13 @@ cerrarPopup(): void {
         ;(this.map.getTargetElement() as HTMLElement).style.cursor = ''
       }
     })
+
+    // Capa de la ruta: se añade ANTES que los pines para que estos
+    // se dibujen por encima de la línea.
+    this.rutaLayer = new VectorLayer({
+      source: new VectorSource({ features: [] })
+    })
+    this.map.addLayer(this.rutaLayer)
 
     this.pinsLayer = new VectorLayer({
       source: new VectorSource({ features: [] })

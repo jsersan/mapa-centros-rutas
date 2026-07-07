@@ -158,6 +158,66 @@ $header-h:     160px;
         &:active { transform: translateY(0); }
       }
     }
+
+    // ── Favoritos ────────────────────────────────────────────────────────
+    .favoritos-panel {
+      margin-top: 4px;
+      border-top: 1px solid #eaeaea;
+      padding-top: 12px;
+      overflow-y: auto;
+
+      .favoritos-titulo {
+        font-size: 13px;
+        font-weight: 700;
+        color: #b45309;
+        margin-bottom: 8px;
+      }
+
+      .favoritos-lista {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+
+        li {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+
+          .fav-nombre {
+            flex: 1;
+            text-align: left;
+            border: none;
+            background: #f8fafc;
+            color: #1e293b;
+            border-radius: 6px;
+            padding: 7px 10px;
+            font-size: 13px;
+            cursor: pointer;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            transition: background 0.15s;
+            &:hover { background: #eef2ff; color: #1e40af; }
+          }
+          .fav-quitar {
+            flex-shrink: 0;
+            width: 26px;
+            height: 26px;
+            border: none;
+            background: #f1f5f9;
+            color: #64748b;
+            border-radius: 6px;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+            &:hover { background: #fee2e2; color: #b91c1c; }
+          }
+        }
+      }
+    }
   }
 
   // ── Mapa ─────────────────────────────────────────────────────────────────
@@ -211,6 +271,9 @@ $header-h:     160px;
         box-shadow: 0 8px 16px rgba(0,0,0,0.25);
         &::after { display: none !important; }
       }
+
+      // Al arrastrar el popup, la flecha ya no apunta al pin: se oculta
+      &.popup-movido::after { display: none !important; }
     }
 
     // ── Popup: botón cerrar ────────────────────────────────────────────────
@@ -235,6 +298,29 @@ $header-h:     160px;
       &:hover { background: rgba(0,0,0,0.7); transform: scale(1.1); }
     }
 
+    // ── Popup: estrella de favorito ────────────────────────────────────────
+    .popup-fav {
+      position: absolute;
+      top: 12px;
+      right: 52px;
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: rgba(0,0,0,0.5);
+      color: #ffffff;
+      border-radius: 50%;
+      font-size: 19px;
+      line-height: 1;
+      cursor: pointer;
+      z-index: 10;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      &:hover { background: rgba(0,0,0,0.7); transform: scale(1.12); }
+      &.activo { color: #fbbf24; }   // estrella dorada al estar guardado
+    }
+
     // ── Popup: cabecera con imagen ─────────────────────────────────────────
     .popup-header {
       position: relative;
@@ -248,6 +334,15 @@ $header-h:     160px;
       gap: 20px;
       border-radius: $radius $radius 0 0;
       overflow: hidden; // ← evita que la imagen desborde el borde redondeado
+
+      // Arrastre del popup
+      &.popup-arrastrable {
+        cursor: move;
+        cursor: grab;
+        user-select: none;
+        touch-action: none;   // permite arrastrar con dedo sin hacer scroll
+        &:active { cursor: grabbing; }
+      }
 
       .centro-imagen {
         width: 120px;
@@ -406,6 +501,180 @@ $header-h:     160px;
             font-style: italic;
             animation: pulse-text 1.2s ease-in-out infinite;
           }
+        }
+      }
+
+      // ── Ruta por carretera ───────────────────────────────────────────────
+      .ruta-box {
+        margin-top: 12px;
+
+        .ruta-cargando {
+          font-size: 0.9em;
+          color: #475569;
+          font-style: italic;
+          padding: 8px 4px;
+          animation: pulse-text 1.2s ease-in-out infinite;
+        }
+
+        .btn-ruta {
+          width: 100%;
+          border: none;
+          border-radius: 8px;
+          padding: 10px 12px;
+          font-size: 0.92em;
+          font-weight: 600;
+          color: #fff;
+          background: #1e40af;
+          cursor: pointer;
+          transition: background 0.15s ease;
+
+          &:hover:not(:disabled) { background: #1c3aa0; }
+          &:disabled { opacity: 0.65; cursor: default; }
+        }
+
+        .ruta-resultado {
+          margin-top: 10px;
+          padding: 10px 12px;
+          background: rgba(30, 64, 175, 0.06);
+          border: 1px solid rgba(30, 64, 175, 0.18);
+          border-radius: 8px;
+
+          .ruta-dato {
+            font-size: 0.95em;
+            color: #1e293b;
+
+            strong {
+              color: #1e40af;
+              text-transform: uppercase;
+              font-size: 0.78em;
+              letter-spacing: 0.5px;
+              margin-right: 6px;
+            }
+            .ruta-km { font-weight: 700; }
+          }
+
+          .ruta-origen {
+            margin-top: 4px;
+            font-size: 0.82em;
+            color: #475569;
+          }
+
+          .ruta-nota {
+            margin-top: 2px;
+            font-size: 0.78em;
+            color: #64748b;
+            font-style: italic;
+          }
+
+          .ruta-tramos {
+            margin-top: 8px;
+            border-top: 1px dashed rgba(30, 64, 175, 0.2);
+            padding-top: 8px;
+
+            .ruta-tramos-titulo {
+              font-size: 0.78em;
+              font-weight: 700;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              color: #1e40af;
+              margin-bottom: 4px;
+            }
+
+            .ruta-tramos-lista {
+              list-style: decimal;
+              margin: 0;
+              padding-left: 20px;
+              max-height: 160px;
+              overflow-y: auto;
+
+              li {
+                display: flex;
+                align-items: flex-end;
+                gap: 0;
+                font-size: 0.85em;
+                padding: 2px 0;
+                color: #1e293b;
+
+                .tramo-via {
+                  flex: 0 1 auto;
+                  min-width: 0;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+                  white-space: nowrap;
+                }
+                .tramo-puntos {
+                  flex: 1 1 auto;
+                  min-width: 12px;
+                  margin: 0 4px 4px;
+                  border-bottom: 1px dotted #94a3b8;
+                }
+                .tramo-km {
+                  flex-shrink: 0;
+                  font-weight: 600;
+                  color: #1e40af;
+                  font-variant-numeric: tabular-nums;
+                  white-space: nowrap;
+
+                  .tramo-pk { font-weight: 700; }
+                  .tramo-long {
+                    font-weight: 500;
+                    color: #64748b;
+                    margin-left: 2px;
+                  }
+                }
+              }
+            }
+
+            .ruta-tramos-aclaracion {
+              margin-top: 6px;
+              font-size: 0.72em;
+              color: #94a3b8;
+              font-style: italic;
+              line-height: 1.3;
+            }
+          }
+
+          .btn-imprimir-ruta {
+            margin-top: 10px;
+            width: 100%;
+            border: 1px solid #1e40af;
+            background: #fff;
+            color: #1e40af;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 0.88em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+
+            &:hover { background: #1e40af; color: #fff; }
+          }
+
+          .ruta-aviso {
+            margin-top: 4px;
+            font-size: 0.8em;
+            color: #b45309;
+            font-style: italic;
+          }
+
+          .btn-ruta-quitar {
+            margin-top: 8px;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #475569;
+            border-radius: 6px;
+            padding: 5px 10px;
+            font-size: 0.82em;
+            cursor: pointer;
+
+            &:hover { background: #f1f5f9; }
+          }
+        }
+
+        .ruta-error {
+          margin-top: 8px;
+          font-size: 0.85em;
+          color: #b91c1c;
         }
       }
 

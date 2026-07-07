@@ -89,3 +89,4 @@ lo que crea los artefactos en el directorio `dist/`.
 # angular-openlayer-bestfit-geolocalizacion
 # angular-openlayer-bestfit-geolocalizacion
 # angular-openlayer-bestfit-geolocalizacion
+# mapa-centros-rutas
